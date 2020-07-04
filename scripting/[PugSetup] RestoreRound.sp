@@ -2,9 +2,16 @@
 #include <sdktools>
 #include <multicolors>
 #include <autoexecconfig>
+#undef REQUIRE_PLUGIN
+#include <pugsetup>
+#define REQUIRE_PLUGIN
 
 #pragma semicolon 1
 #pragma newdecls required
+
+//#define DEBUG
+
+#define MAXROUNDS 150 //including overtime :s
 
 int iRound = 0;
 bool g_bStop[MAXPLAYERS+1];
@@ -18,30 +25,40 @@ ConVar gc_sChatTag, gc_fRepeat, gc_bDeleteFile;
 
 char g_ssPrefix[128];
 
+char g_BackupPrefix[PLATFORM_MAX_PATH], g_BackupPrefixPattern[PLATFORM_MAX_PATH];
+
+bool g_RoundEnd;
+
+bool g_Pug;
+
 public Plugin myinfo =
 {
     name = "[PugSetup] RestoreRound",
     author = "Cruze",
     description = "Player can type .stop command to restore last round. Admins can type .res to restore any round.",
-    version = "1.1",
+    version = "1.2",
     url = "http://steamcommunity.com/profiles/76561198132924835"
 };
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	MarkNativeAsOptional("PugSetup_GetGameState");
+	return APLRes_Success;
+}
 
 public void OnPluginStart()
 {
 	HookEvent("round_start", Event_RoundStart);
+	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("player_team", Event_Changeteam);
 	HookUserMessage(GetUserMessageId("TextMsg"), Event_TextMsgHook);
+	AddCommandListener(Event_UnpauseMatchCvar, "mp_unpause_match");
 	
 	RegConsoleCmd("sm_unpause", Command_Unpause, "Requests an unpause");
 	RegAdminCmd("sm_restoreround", Command_Restore, ADMFLAG_GENERIC, "Restores last rounds.");
 	RegAdminCmd("sm_deleteallbackuprounds", Command_DeleteAllRounds, ADMFLAG_ROOT, "Deletes all backup rounds.");
 	
-	ServerCommand("mp_backup_restore_load_autopause 0");
-	ServerCommand("mp_backup_round_auto 1");
-	
-	
-	AutoExecConfig_SetFile("PugRestoreRound");
+	AutoExecConfig_SetFile("RestoreRound");
 	AutoExecConfig_SetCreateFile(true);
 	
 	gc_sChatTag = AutoExecConfig_CreateConVar("sm_pug_rr_chattag", "[{lightgreen}PUG{default}]", "Chat tag for chat prints");
@@ -51,20 +68,70 @@ public void OnPluginStart()
 	AutoExecConfig_ExecuteFile();
 	AutoExecConfig_CleanFile();
 	
-	LoadTranslations("PugRestoreRound.phrases");
+	LoadTranslations("RestoreRound.phrases");
+}
+	
+
+public void OnAllPluginsLoaded()
+{
+	g_Pug = LibraryExists("pugsetup");
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+	if(strcmp(name, "pugsetup") == 0)
+	{
+		g_Pug = true;
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if(strcmp(name, "pugsetup") == 0)
+	{
+		g_Pug = false;
+	}
+}
+
+public Action Event_UnpauseMatchCvar(int client, const char[] command, int argc)
+{
+	if(!(GameRules_GetProp("m_bMatchWaitingForResume") != 0))
+	{
+		return;
+	}
+	for(int i = 0; i < MaxClients; i++)
+	{
+		g_bStop[i] = false;
+	}
+	g_RepeatTimer = false;
+	g_Restored = false;
+	g_ctUnpaused = true;
+	g_tUnpaused = true;
 }
 
 public Action Event_RoundStart(Event ev, const char[] name, bool dbc)
 {
+	g_RoundEnd = false;
+	for(int client = 0; client < MaxClients; client++)
+	{
+		g_bStop[client] = false;
+	}
+	g_RepeatTimer = false;
+	g_Restored = false;
+	g_ctUnpaused = true;
+	g_tUnpaused = true;
 	if(GameRules_GetProp("m_bWarmupPeriod") != 1)
 	{
 		iRound++;
-		for(int client = 0; client < MaxClients; client++)
-		{
-			g_bStop[client] = false;
-		}
-		g_RepeatTimer = false;
+		#if defined DEBUG
+		PrintToChatAll("[DEBUG] Round: %d", iRound);
+		#endif
 	}
+}
+
+public Action Event_RoundEnd(Event ev, const char[] name, bool dbc)
+{
+	g_RoundEnd = true;
 }
 
 public Action Event_Changeteam(Event ev, const char[] name, bool dbc)
@@ -101,30 +168,44 @@ public Action Timer_GameRestarted(Handle hTimer)
 public void OnMapStart()
 {
 	gc_sChatTag.GetString(g_ssPrefix, sizeof(g_ssPrefix));
-	
+
+	FindConVar("mp_backup_round_file").GetString(g_BackupPrefix, sizeof(g_BackupPrefix));
+	FindConVar("mp_backup_round_file_pattern").GetString(g_BackupPrefixPattern, sizeof(g_BackupPrefixPattern));
+
+	if(StrContains(g_BackupPrefixPattern, "%date%") != -1 || StrContains(g_BackupPrefixPattern, "%time%") != -1 || StrContains(g_BackupPrefixPattern, "%team1%") != -1 || StrContains(g_BackupPrefixPattern, "%team2%") != -1 || StrContains(g_BackupPrefixPattern, "%map%") != -1 || StrContains(g_BackupPrefixPattern, "%score1%") != -1 || StrContains(g_BackupPrefixPattern, "%score2%") != -1)
+	{
+		LogError("Keep \"mp_backup_round_file_pattern\"'s value simplified. Only %round% is supported as of now. Plugin may not work properly.");
+	}
+
 	ServerCommand("mp_backup_restore_load_autopause 0");
 	ServerCommand("mp_backup_round_auto 1");
-	g_ctUnpaused = false;
-	g_tUnpaused = false;
-	g_Restored = false;
-	g_RepeatTimer = false;
-	iRound = 0;
+
 	for(int client = 0; client < MaxClients; client++)
 	{
 		g_bStop[client] = false;
 	}
+	g_RepeatTimer = false;
+	g_Restored = false;
+	g_ctUnpaused = true;
+	g_tUnpaused = true;
+	iRound = 0;
 	if(gc_bDeleteFile.BoolValue)
 	{
 		char filepath[PLATFORM_MAX_PATH];
-		for(int i = 1; i <= 30; i++)
+		char num[5];
+		for(int i = 0; i <= MAXROUNDS; i++)
 		{
+			Format(filepath, sizeof(filepath), "%s", g_BackupPrefixPattern);
+			ReplaceString(filepath, sizeof(filepath), "%prefix%", g_BackupPrefix);
 			if(i < 10)
 			{
-				Format(filepath, sizeof(filepath), "backup_round0%d.txt", i);
+				Format(num, sizeof(num), "0%d", i);
+				ReplaceString(filepath, sizeof(filepath), "%round%", num);
 			}
 			else
 			{
-				Format(filepath, sizeof(filepath), "backup_round%d.txt", i);
+				Format(num, sizeof(num), "%d", i);
+				ReplaceString(filepath, sizeof(filepath), "%round%", num);
 			}
 			if(FileExists(filepath))
 			{
@@ -150,11 +231,19 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 	{
 		return Plugin_Continue;
 	}
-	if(strcmp(command, "say") != 0)
+	if(strcmp(command, "say") != 0 && strcmp(command, "say_team") != 0)
 	{
 		return Plugin_Continue;
 	}
 	if(sArgs[0] != '.')
+	{
+		return Plugin_Continue;
+	}
+	if(strcmp(sArgs, ".rest", false) == 0 || strcmp(sArgs, ".restore", false) == 0)
+	{
+		Command_Restore(client, 0);
+	}
+	if(strcmp(command, "say_team") == 0)
 	{
 		return Plugin_Continue;
 	}
@@ -170,16 +259,12 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 	{
 		Command_Unpause(client, 0);
 	}
-	else if(strcmp(sArgs, ".rest", false) == 0 || strcmp(sArgs, ".restore", false) == 0)
-	{
-		Command_Restore(client, 0);
-	}
 	return Plugin_Continue;
 }
 
 public void DoStopThings(int client)
 {
-	if(GameRules_GetProp("m_bWarmupPeriod") == 1)
+	if(GameRules_GetProp("m_bWarmupPeriod") == 1 || g_RoundEnd || (g_Pug && PugSetup_GetGameState() != GameState_Live))
 	{
 		CPrintToChat(client, "%s %T", g_ssPrefix, "CannotUseRightNow", client);
 		return;
@@ -196,7 +281,7 @@ public void DoStopThings(int client)
 	}
 	if(!UsedStop())
 	{
-		char teamname[32], oppteamname[32];
+		char teamname[64], oppteamname[64];
 		if(GetClientTeam(client) == 2)
 		{
 			Format(teamname, sizeof(teamname), "%T", "T", client);
@@ -213,7 +298,7 @@ public void DoStopThings(int client)
 		if(gc_fRepeat.FloatValue)
 		{
 			DataPack data = new DataPack();
-			CreateDataTimer(7.0, Timer_RepeatMSG, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+			CreateDataTimer(gc_fRepeat.FloatValue, Timer_RepeatMSG, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 			data.WriteString(sMessage);
 		}
 		g_RepeatTimer = true;
@@ -238,41 +323,61 @@ public Action Timer_RepeatMSG(Handle tmr, DataPack pack)
 	return Plugin_Continue;
 }
 
-public void RestoreRound(int round)
+stock void RestoreRound(int round, int type = 0)
 {
 	g_RepeatTimer = false;
 	for(int i = 0; i < MaxClients; i++)
 	{
 		g_bStop[i] = false;
 	}
-	iRound = round;
 
-	char roundName[64];
-	char prefix1[16] = "backup_round0";
-	char prefix2[16] = "backup_round";
-	char end[8] = ".txt";
-
-	if(round < 10)
+	if(type == 1)
 	{
-		Format(roundName, sizeof(roundName), "%s%d%s", prefix1, round, end);
+		iRound = round;
 	}
 	else
 	{
-		Format(roundName, sizeof(roundName), "%s%d%s", prefix2, round, end);
+		iRound -= 1;
 	}
 
-	ServerCommand("mp_backup_restore_load_file %s", roundName);
+	char filepath[PLATFORM_MAX_PATH];
+	char num[5];
+	Format(filepath, sizeof(filepath), "%s", g_BackupPrefixPattern);
+	ReplaceString(filepath, sizeof(filepath), "%prefix%", g_BackupPrefix);
+	if(round < 10)
+	{
+		Format(num, sizeof(num), "0%d", round);
+		ReplaceString(filepath, sizeof(filepath), "%round%", num);
+	}
+	else
+	{
+		Format(num, sizeof(num), "%d", round);
+		ReplaceString(filepath, sizeof(filepath), "%round%", num);
+	}
+	
+	if(!FileExists(filepath))
+	{
+		#if defined DEBUG
+		PrintToChatAll("[DEBUG] Backup file \"%s\" doesn't exist", filepath);
+		#endif
+		return;
+	}
+	
 	ServerCommand("mp_pause_match");
+	ServerCommand("mp_backup_restore_load_file %s", filepath);
+	#if defined DEBUG
+	PrintToChatAll("[DEBUG] File: %s", filepath);
+	#endif
 	CPrintToChatAll("%s %T", g_ssPrefix, "RoundRestored", LANG_SERVER);
 
-	char sMessage[128];
+	char sMessage[256];
 	Format(sMessage, sizeof(sMessage), "%s %T", g_ssPrefix, "UnpauseInst", LANG_SERVER);
 	CPrintToChatAll(sMessage);
 
 	if(gc_fRepeat.FloatValue)
 	{
 		DataPack data = new DataPack();
-		CreateDataTimer(5.0, Timer_RepeatMSG2, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		CreateDataTimer(gc_fRepeat.FloatValue, Timer_RepeatMSG2, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 		data.WriteString(sMessage);
 	}
 
@@ -283,7 +388,7 @@ public void RestoreRound(int round)
 
 public Action Timer_RepeatMSG2(Handle tmr, DataPack pack)
 {
-	if(!(GameRules_GetProp("m_bMatchWaitingForResume") != 0))
+	if(g_ctUnpaused || g_tUnpaused)
 	{
 		return Plugin_Stop;
 	}
@@ -310,15 +415,20 @@ public void RestoreMenu(int client)
 	char info[5], display[16], curr[16], filepath[PLATFORM_MAX_PATH];
 	Menu menu = new Menu(Handle_RestoreMenu);
 	menu.SetTitle("Round to restore:");
-	for(int i = 1; i <= 30; i++)
+	char num[5];
+	for(int i = 0; i <= MAXROUNDS; i++)
 	{
+		Format(filepath, sizeof(filepath), "%s", g_BackupPrefixPattern);
+		ReplaceString(filepath, sizeof(filepath), "%prefix%", g_BackupPrefix);
 		if(i < 10)
 		{
-			Format(filepath, sizeof(filepath), "backup_round0%d.txt", i);
+			Format(num, sizeof(num), "0%d", i);
+			ReplaceString(filepath, sizeof(filepath), "%round%", num);
 		}
 		else
 		{
-			Format(filepath, sizeof(filepath), "backup_round%d.txt", i);
+			Format(num, sizeof(num), "%d", i);
+			ReplaceString(filepath, sizeof(filepath), "%round%", num);
 		}
 		if(!FileExists(filepath))
 		{
@@ -326,13 +436,13 @@ public void RestoreMenu(int client)
 		}
 		IntToString(i, info, sizeof(info));
 		Format(curr, sizeof(curr), "%T", "CurrentShort", client);
-		Format(display, sizeof(display), "%T %d%s", "Round", client, i, i == iRound ? curr:"");
+		Format(display, sizeof(display), "%T %d%s", "Round", client, i+1, i+1 == iRound ? curr:"");
 		menu.AddItem(info, display);
 	}
 	menu.ExitButton = true;
 	if(menu.ItemCount < 1)
 	{
-		CPrintToChat(client, "%s %T", "NoBackupRounds", client);
+		CPrintToChat(client, "%s %T", g_ssPrefix, "NoBackupRounds", client);
 	}
 	else
 	{
@@ -352,7 +462,7 @@ public int Handle_RestoreMenu(Menu menu, MenuAction action, int client, int item
 		{
 			char info[32];
 			menu.GetItem(item, info, sizeof(info));
-			RestoreRound(StringToInt(info)-1);
+			RestoreRound(StringToInt(info), 1);
 		}
 	}
 }
@@ -360,15 +470,20 @@ public int Handle_RestoreMenu(Menu menu, MenuAction action, int client, int item
 public Action Command_DeleteAllRounds(int client, int args)
 {
 	char filepath[PLATFORM_MAX_PATH];
-	for(int i = 1; i <= 30; i++)
+	char num[5];
+	for(int i = 0; i <= MAXROUNDS; i++)
 	{
+		Format(filepath, sizeof(filepath), "%s", g_BackupPrefixPattern);
+		ReplaceString(filepath, sizeof(filepath), "%prefix%", g_BackupPrefix);
 		if(i < 10)
 		{
-			Format(filepath, sizeof(filepath), "backup_round0%d.txt", i);
+			Format(num, sizeof(num), "0%d", i);
+			ReplaceString(filepath, sizeof(filepath), "%round%", num);
 		}
 		else
 		{
-			Format(filepath, sizeof(filepath), "backup_round%d.txt", i);
+			Format(num, sizeof(num), "%d", i);
+			ReplaceString(filepath, sizeof(filepath), "%round%", num);
 		}
 		if(FileExists(filepath))
 		{
@@ -411,13 +526,37 @@ public Action Command_Unpause(int client, int args)
 	}
 	else if (g_tUnpaused && !g_ctUnpaused)
 	{
-		CPrintToChatAll("%s %T", g_ssPrefix, "TUnpause", LANG_SERVER);
+		char sMessage[256];
+		Format(sMessage, sizeof(sMessage), "%s %T", g_ssPrefix, "TUnpause", LANG_SERVER);
+		CPrintToChatAll(sMessage);
+		DataPack data = new DataPack();
+		CreateDataTimer(gc_fRepeat.FloatValue, Timer_RepeatMSG3, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		data.WriteString(sMessage);
 	}
 	else if (!g_tUnpaused && g_ctUnpaused)
 	{
-		CPrintToChatAll("%s %T", g_ssPrefix, "CTUnpause", LANG_SERVER);
+		char sMessage[256];
+		Format(sMessage, sizeof(sMessage), "%s %T", g_ssPrefix, "CTUnpause", LANG_SERVER);
+		CPrintToChatAll(sMessage);
+		DataPack data = new DataPack();
+		CreateDataTimer(gc_fRepeat.FloatValue, Timer_RepeatMSG3, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		data.WriteString(sMessage);
 	}
 	return Plugin_Handled;
+}
+
+public Action Timer_RepeatMSG3(Handle tmr, DataPack pack)
+{
+	if(!g_Restored)
+	{
+		return Plugin_Stop;
+	}
+	char sMessage[256];
+
+	pack.Reset();
+	pack.ReadString(sMessage, sizeof(sMessage));
+	CPrintToChatAll(sMessage);
+	return Plugin_Continue;
 }
 
 stock bool TeamUsedStop(int client)
