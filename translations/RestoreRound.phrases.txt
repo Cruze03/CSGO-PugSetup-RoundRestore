@@ -12,6 +12,10 @@
 	{
 		"en"			"Your team has already used this command."
 	}
+	"NoDisconnect"
+	{
+		"en"			"Your team needs to have atleast 1 disconnected player."
+	}
 	"T"
 	{
 		"en"			"{yellow}Terrorists{default}"
@@ -25,9 +29,37 @@
 		"#format"		"{1:s},{2:s}"
 		"en"			"{1} requested to restore last round. {2} can type {lightgreen}.stop{default} in chat to restore last round!"
 	}
+	"WaitingForOpponent"
+	{
+		"#format"		"{1:d},{2:d}"
+		"en"			"Your team has already voted for stop. Waiting for other team to complete the stop votes. ({1} votes, {2} required)"
+	}
+	"LetOppFinish"
+	{
+		"#format"		"{1:d},{2:d}"
+		"en"			"Opponent team has already started voting for stop. Let their team finish voting first! ({1} votes, {2} required)"
+	}
+	"StopVotes"
+	{
+		"#format"		"{1:N},{2:s},{3:s},{4:d},{5:d}" //Playername | Player_TeamName | Player_TeamName | Votes_Done | Total_Votes_Needed
+		"en"			"{1} from {2} team requested to stop. Waiting for other {3} to type .stop({3} votes, {4} required)"
+	}
+	"WaitingForOpponentAll"
+	{
+		"#format"		"{1:s},{2:ds"
+		"en"			"Team {1} succesfully voted for stop. Now waiting for team {2} to vote for stop."
+	}
 	"RoundRestored"
 	{
 		"en"			"Round restored, GLHF!"
+	}
+	"RoundRestoredAtRoundStart"
+	{
+		"en"			"Round will be restored after new round start! GLHF!"
+	}
+	"UnpauseFirst"
+	{
+		"en"			"You can't restore round when match is paused."
 	}
 	"UnpauseInst"
 	{
