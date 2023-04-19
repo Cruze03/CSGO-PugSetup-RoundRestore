@@ -1,5 +1,9 @@
 "Phrases"
 {
+	"NoAccess"
+	{
+		"en"			"You do not have access to this command."
+	}
 	"CannotUseRightNow"
 	{
 		"en"			"You cannot use this command right now."
