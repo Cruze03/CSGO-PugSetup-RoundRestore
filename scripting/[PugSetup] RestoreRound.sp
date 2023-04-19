@@ -49,6 +49,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 public void OnPluginStart()
 {
 	HookEvent("round_start", Event_RoundStart);
+	HookEvent("round_freeze_end", Event_RoundFreezeEnd);
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("player_team", Event_Changeteam);
 	HookUserMessage(GetUserMessageId("TextMsg"), Event_TextMsgHook);
@@ -111,7 +112,6 @@ public Action Event_UnpauseMatchCvar(int client, const char[] command, int argc)
 
 public Action Event_RoundStart(Event ev, const char[] name, bool dbc)
 {
-	g_RoundEnd = false;
 	for(int client = 0; client < MaxClients; client++)
 	{
 		g_bStop[client] = false;
@@ -127,6 +127,11 @@ public Action Event_RoundStart(Event ev, const char[] name, bool dbc)
 		PrintToChatAll("[DEBUG] Round: %d", iRound);
 		#endif
 	}
+}
+
+public Action Event_RoundFreezeEnd(Event ev, const char[] name, bool dbc)
+{
+	g_RoundEnd = false;
 }
 
 public Action Event_RoundEnd(Event ev, const char[] name, bool dbc)
