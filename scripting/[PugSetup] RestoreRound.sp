@@ -21,7 +21,7 @@ bool g_Restored = false;
 bool g_ctUnpaused = false;
 bool g_tUnpaused = false;
 
-ConVar gc_sChatTag, gc_fRepeat, gc_bDeleteFile;
+ConVar gc_sChatTag, gc_fRepeat, gc_bDeleteFile, gc_sAdminAccess;
 
 char g_ssPrefix[128];
 
@@ -36,7 +36,7 @@ public Plugin myinfo =
     name = "[PugSetup] RestoreRound",
     author = "Cruze",
     description = "Player can type .stop command to restore last round. Admins can type .res to restore any round.",
-    version = "1.2",
+    version = "1.3",
     url = "http://steamcommunity.com/profiles/76561198132924835"
 };
 
@@ -65,6 +65,7 @@ public void OnPluginStart()
 	gc_sChatTag = AutoExecConfig_CreateConVar("sm_pug_rr_chattag", "[{lightgreen}PUG{default}]", "Chat tag for chat prints");
 	gc_fRepeat = AutoExecConfig_CreateConVar("sm_pug_rr_repeat", "5.0", "Repeat message of \"round restore\" and \"unpause to resume match\" every x seconds. 0.0 to disable repeat.");
 	gc_bDeleteFile = AutoExecConfig_CreateConVar("sm_pug_rr_delete_file", "0", "Delete backup files every map start/reload? WARNING: If enabled, you can loose backup files when server crashed. It's recommended to use sm_deleteallbackuprounds.");
+	gc_sAdminAccess = AutoExecConfig_CreateConVar("sm_pug_rr_adminaccess", "1", "Admin access needed for .stop?");
 	
 	AutoExecConfig_ExecuteFile();
 	AutoExecConfig_CleanFile();
@@ -282,6 +283,11 @@ public void DoStopThings(int client)
 	if(TeamUsedStop(client))
 	{
 		CPrintToChat(client, "%s %T", g_ssPrefix, "TeamUsedCommand", client);
+		return;
+	}
+	if(!CheckCommandAccess(client, "sm_admin", ADMFLAG_RCON) && gc_sAdminAccess.BoolValue)
+	{
+		CPrintToChat(client, "%s %T", g_ssPrefix, "NoAccess", client);
 		return;
 	}
 	if(!UsedStop())
